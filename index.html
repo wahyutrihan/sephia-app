@@ -1,0 +1,1707 @@
+import React, { useState, useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { 
+  Box, Eye, Layers, Grid, Calculator, Award, Play, RotateCcw, 
+  Volume2, VolumeX, Settings, Info, Send, Sparkles, 
+  ChevronRight, CheckCircle2, Star, RefreshCw, X, HelpCircle,
+  TrendingUp, Compass, Heart, Smile, Lock, Unlock, MapPin, MessageSquare, ThumbsUp, Frown, Meh, SmilePlus
+} from 'lucide-react';
+
+// --- Web Audio API Synth Effects ---
+const playSound = (type) => {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type === 'correct') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(659.25, ctx.currentTime + 0.1);
+      osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.4);
+    } else if (type === 'wrong') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(140, ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    } else if (type === 'click') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(450, ctx.currentTime);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.06);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.06);
+    } else if (type === 'unlock') {
+      [392, 523.25, 659.25, 783.99].forEach((freq, idx) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.2, ctx.currentTime + idx * 0.08);
+        g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + idx * 0.08 + 0.3);
+        o.start(ctx.currentTime + idx * 0.08);
+        o.stop(ctx.currentTime + idx * 0.08 + 0.3);
+      });
+    } else if (type === 'fanfare') {
+      [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.2, ctx.currentTime + idx * 0.1);
+        g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + idx * 0.1 + 0.35);
+        o.start(ctx.currentTime + idx * 0.1);
+        o.stop(ctx.currentTime + idx * 0.1 + 0.35);
+      });
+    }
+  } catch (e) {
+    console.log("Audio contextual block", e);
+  }
+};
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('splash');
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [speechRate, setSpeechRate] = useState(0.88); // Kecepatan sedang-lambat guru SD
+  const [lastNarrativeText, setLastNarrativeText] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+
+  // Available voices & selected female voice state
+  const [voicesList, setVoicesList] = useState([]);
+  const [selectedVoiceIndex, setSelectedVoiceIndex] = useState(0);
+
+  // Gemini AI Chat State
+  const [aiMessages, setAiMessages] = useState([
+    { role: 'assistant', text: 'Halo anak-anak pintar! 👋 Saya Ibu Guru SEPHIA AI Tutor! ✨ Ada yang ingin ditanyakan seputar kubus, balok, atau rumus luas dan volume? Yuk, tanya sama Ibu!' }
+  ]);
+  const [userQuery, setUserQuery] = useState('');
+  const [isAiThinking, setIsAiThinking] = useState(false);
+
+  // Load SpeechSynthesis Voices & Strict Female Teacher Voice Selection
+  useEffect(() => {
+    const updateVoices = () => {
+      if (!('speechSynthesis' in window)) return;
+      const voices = window.speechSynthesis.getVoices();
+      setVoicesList(voices);
+      
+      // Strict priority for female Indonesian or warm female fallback voices
+      const femaleIdx = voices.findIndex(v => {
+        const name = v.name.toLowerCase();
+        const lang = v.lang.toLowerCase();
+        const isIndo = lang.includes('id') || lang.includes('in');
+        const isFemaleName = name.includes('female') || name.includes('gadis') || name.includes('google') || name.includes('siti') || name.includes('damayanti') || name.includes('zira') || name.includes('monica') || name.includes('jenny') || name.includes('aris') || name.includes('wini');
+        return isIndo && isFemaleName;
+      });
+
+      if (femaleIdx !== -1) {
+        setSelectedVoiceIndex(femaleIdx);
+      } else {
+        const indoIdx = voices.findIndex(v => v.lang.toLowerCase().includes('id'));
+        if (indoIdx !== -1) setSelectedVoiceIndex(indoIdx);
+      }
+    };
+
+    updateVoices();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+  }, []);
+
+  // Clean Markdown & Math formatting helper for text speech
+  const cleanFormatText = (txt) => {
+    return txt
+      .replace(/[*_#`~$^]/g, '')
+      .replace(/²/g, ' pangkat dua ')
+      .replace(/³/g, ' pangkat tiga ')
+      .replace(/×/g, ' kali ')
+      .replace(/cm²/g, ' sentimeter persegi ')
+      .replace(/cm³/g, ' sentimeter kubik ');
+  };
+
+  // Expressive Indonesian Female Teacher Voice Speaker
+  const speakText = (text) => {
+    if (!voiceEnabled || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    setIsPaused(false);
+    setLastNarrativeText(text);
+    
+    const cleanText = cleanFormatText(text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'id-ID';
+    utterance.rate = speechRate; // Kecepatan ramah & mudah diikuti (~0.88)
+    utterance.pitch = 1.25;      // Pitch hangat, ramah, dan bersemangat khas guru favorit
+
+    if (voicesList.length > 0 && voicesList[selectedVoiceIndex]) {
+      utterance.voice = voicesList[selectedVoiceIndex];
+    } else {
+      const voices = window.speechSynthesis.getVoices();
+      const idVoice = voices.find(v => 
+        (v.lang.includes('id') || v.lang.includes('ID')) && 
+        (v.name.includes('Female') || v.name.includes('Gadis') || v.name.includes('Google') || v.name.includes('Siti') || v.name.includes('Aris') || v.name.includes('Wini'))
+      ) || voices.find(v => v.lang.includes('id') || v.lang.includes('ID'));
+      if (idVoice) utterance.voice = idVoice;
+    }
+
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      setIsPaused(false);
+    };
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+    };
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopVoice = () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+  };
+
+  const togglePauseResume = () => {
+    if (!('speechSynthesis' in window)) return;
+    if (isSpeaking && !isPaused) {
+      window.speechSynthesis.pause();
+      setIsPaused(true);
+    } else if (isPaused) {
+      window.speechSynthesis.resume();
+      setIsPaused(false);
+    } else if (lastNarrativeText) {
+      speakText(lastNarrativeText);
+    }
+  };
+
+  const replayVoice = () => {
+    if (lastNarrativeText) {
+      speakText(lastNarrativeText);
+    }
+  };
+
+  // Expressive Teacher Narration per Module
+  useEffect(() => {
+    stopVoice();
+    let textToNarrate = "";
+    switch (activeTab) {
+      case 'splash':
+        textToNarrate = "Halo Sahabat SEPHIA! Selamat datang di dunia bangun ruang yang seru sekali. Hari ini, Ibu Guru akan mengajak kalian menjelajahi kubus dan balok! Yuk, kita tekan tombol Mulai Belajar!";
+        break;
+      case 'menu':
+        textToNarrate = "Wah, hebat sekali! Di menu utama ini, kalian bisa memilih modul mana yang ingin dieksplorasi terlebih dahulu. Pilih yang paling kalian sukai ya!";
+        break;
+      case 'kenali':
+        textToNarrate = "Mari kita kenali bentuk kubus dan balok! Coba amati contoh benda di sekitar kita, seperti dadu dan kotak sepatu. Menarik sekali, bukan?";
+        break;
+      case 'eksplorasi3d':
+        textToNarrate = "Selamat datang di laboratorium tiga dimensi! Di sini kalian bisa memutar objek tiga ratus enam puluh derajat, serta melihat bagaimana jaring-jaring terbentang secara rapi dan menempel pada engselnya!";
+        break;
+      case 'unsur':
+        textToNarrate = "Ayo anak-anak hebat, sekarang kita amati bagian-bagian bangun ruang! Mulai dari sisi, rusuk, titik sudut, hingga diagonalnya!";
+        break;
+      case 'sifat':
+        textToNarrate = "Mari kita bandingkan sifat-sifat unik antara kubus dan balok. Coba perhatikan baik-baik tabel perbandingannya ya!";
+        break;
+      case 'luas':
+        textToNarrate = "Sekarang kita belajar menghitung luas permukaan! Kalian bisa memasukkan angka desimal secara manual. Ibu sudah menyiapkan langkah perhitungannya dengan sangat jelas!";
+        break;
+      case 'volume':
+        textToNarrate = "Wah, saatnya menghitung volume! Masukkan ukuran panjang, lebar, dan tinggi benda, lalu perhatikan bagaimana hasilnya dihitung secara otomatis!";
+        break;
+      case 'game':
+        textToNarrate = "Hore! Selamat datang di Peta Petualangan Game SEPHIA! Selesaikan Level satu terlebih dahulu untuk membuka kunci level-level berikutnya. Semangat ya, kalian pasti bisa!";
+        break;
+      case 'feedback':
+        textToNarrate = "Terima kasih anak-anak pintar! Tolong berikan umpan balik kalian untuk pengembang multimedia ini ya, agar Ibu Guru bisa terus meningkatkan aplikasinya!";
+        break;
+      default:
+        break;
+    }
+    if (textToNarrate) speakText(textToNarrate);
+  }, [activeTab]);
+
+  const handleSendAiMessage = async () => {
+    if (!userQuery.trim() || isAiThinking) return;
+    const currentInput = userQuery;
+    setUserQuery('');
+
+    const newHistory = [...aiMessages, { role: 'user', text: currentInput }];
+    setAiMessages(newHistory);
+    setIsAiThinking(true);
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const systemPrompt = `Kamu adalah Ibu Guru SEPHIA, seorang guru perempuan Sekolah Dasar Indonesia yang sangat ramah, hangat, sabar, ceria, dan bersemangat.
+Topik: Bangun Ruang Kubus dan Balok untuk Siswa SD Kelas VI.
+Aturan Merespon:
+1. Berperanlah seperti guru favorit anak-anak SD yang penuh perhatian dan kasih sayang.
+2. Gunakan kata-kata penyemangat seperti "Wah!", "Pintar sekali!", "Yuk, coba kita amati!", "Luar biasa!".
+3. Gunakan simbol matematika bersih: × untuk kali, ² untuk pangkat dua, ³ untuk pangkat tiga. DILARANG MENGGUNAKAN $, *, atau ^.
+4. Jawab dalam 2-3 paragraf singkat dengan intonasi ramah anak.`;
+
+      const contents = newHistory.map(m => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.text }]
+      }));
+
+      const payload = {
+        contents: contents,
+        systemInstruction: { parts: [{ text: systemPrompt }] }
+      };
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Wah, Ibu Guru sedang berpikir sebentar ya anak-anak. Coba tanyakan sekali lagi!";
+
+      setAiMessages([...newHistory, { role: 'assistant', text: reply }]);
+      if (voiceEnabled) speakText(reply);
+    } catch (err) {
+      console.error(err);
+      setAiMessages([...newHistory, { 
+        role: 'assistant', 
+        text: 'Anak-anak hebat, koneksi Ibu Guru AI sedang sedikit terkendala. Namun kalian tetap bisa bermain di laboratorium 3D dan kalkulator matematika ini ya!' 
+      }]);
+    } finally {
+      setIsAiThinking(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col justify-between select-none overflow-x-hidden">
+      {/* Top Header */}
+      <header className="bg-slate-800/90 backdrop-blur-md border-b border-cyan-500/30 px-4 py-3 sticky top-0 z-40 flex items-center justify-between shadow-lg">
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => { playSound('click'); setActiveTab('menu'); }}>
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center font-black text-xl shadow-md text-white border border-cyan-200">
+            S
+          </div>
+          <div>
+            <h1 className="font-black text-lg md:text-xl tracking-wide bg-gradient-to-r from-cyan-300 via-blue-200 to-emerald-300 bg-clip-text text-transparent">
+              SEPHIA
+            </h1>
+            <p className="text-[10px] md:text-xs text-cyan-300/90 font-medium">Spatial Exploration & Pedagogical AI</p>
+          </div>
+        </div>
+
+        {/* Global Action Bar */}
+        <div className="flex items-center gap-2 md:gap-3">
+          {/* Active Teacher Voice Wave Indicator */}
+          {isSpeaking && (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-amber-500/20 border border-amber-400/40 rounded-full text-amber-300 text-xs font-bold animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+              <span>Ibu Guru Bicara...</span>
+              <div className="flex items-end gap-0.5 h-3">
+                <span className="w-1 bg-amber-300 h-full animate-bounce"></span>
+                <span className="w-1 bg-amber-300 h-2/3 animate-bounce delay-100"></span>
+                <span className="w-1 bg-amber-300 h-full animate-bounce delay-200"></span>
+              </div>
+            </div>
+          )}
+
+          {/* Teacher Voice Controls: Replay & Pause */}
+          {voiceEnabled && (
+            <div className="flex items-center gap-1 bg-slate-700/80 p-1 rounded-xl border border-slate-600">
+              <button
+                onClick={() => { playSound('click'); replayVoice(); }}
+                className="p-1.5 rounded-lg text-cyan-300 hover:bg-slate-600 transition"
+                title="Ulangi Penjelasan Ibu Guru"
+              >
+                <RotateCcw size={15} />
+              </button>
+              {isSpeaking && (
+                <button
+                  onClick={togglePauseResume}
+                  className="p-1.5 rounded-lg text-amber-300 hover:bg-slate-600 transition"
+                  title={isPaused ? "Lanjutkan Suara" : "Jeda Suara"}
+                >
+                  <Play size={15} className={isPaused ? "" : "fill-amber-300"} />
+                </button>
+              )}
+            </div>
+          )}
+
+          {activeTab !== 'splash' && (
+            <button 
+              onClick={() => { playSound('click'); setActiveTab('menu'); }}
+              className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-cyan-300 text-xs md:text-sm font-bold flex items-center gap-1.5 transition border border-slate-600 shadow"
+            >
+              <Grid size={16} /> <span className="hidden sm:inline">Menu Utama</span>
+            </button>
+          )}
+
+          <button 
+            onClick={() => {
+              playSound('click');
+              if (isSpeaking) stopVoice();
+              else setVoiceEnabled(!voiceEnabled);
+            }}
+            className={`p-2.5 rounded-xl border transition ${
+              isSpeaking 
+                ? 'bg-amber-500/30 border-amber-400 text-amber-300 animate-pulse' 
+                : voiceEnabled 
+                  ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300' 
+                  : 'bg-slate-700 border-slate-600 text-slate-400'
+            }`}
+            title="Pengaturan Voice Ibu Guru"
+          >
+            {voiceEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+          </button>
+
+          <button 
+            onClick={() => { playSound('click'); setShowAiChat(!showAiChat); }}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 text-xs md:text-sm font-black flex items-center gap-1.5 shadow-md shadow-emerald-900/30 transition border border-emerald-200"
+          >
+            <Sparkles size={16} className="animate-spin-slow" />
+            <span className="hidden sm:inline">Guru AI</span>
+          </button>
+
+          <button 
+            onClick={() => { playSound('click'); setShowFeedback(true); }}
+            className="p-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 transition"
+            title="Umpan Balik Pengembang"
+          >
+            <MessageSquare size={18} />
+          </button>
+
+          <button 
+            onClick={() => { playSound('click'); setShowSettings(true); }}
+            className="p-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 transition"
+            title="Pengaturan"
+          >
+            <Settings size={18} />
+          </button>
+
+          <button 
+            onClick={() => { playSound('click'); setShowAbout(true); }}
+            className="p-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 transition"
+            title="Tentang Pengembang"
+          >
+            <Info size={18} />
+          </button>
+        </div>
+      </header>
+
+      {/* Dynamic View Navigation */}
+      <main className="flex-1 relative flex flex-col">
+        {activeTab === 'splash' && <SplashScreen onStart={() => setActiveTab('menu')} />}
+        {activeTab === 'menu' && <MainMenu onSelectModule={(tab) => setActiveTab(tab)} onOpenFeedback={() => setShowFeedback(true)} />}
+        {activeTab === 'kenali' && <KenaliModule />}
+        {activeTab === 'eksplorasi3d' && <Eksplorasi3DModule />}
+        {activeTab === 'unsur' && <UnsurModule />}
+        {activeTab === 'sifat' && <SifatModule />}
+        {activeTab === 'luas' && <LuasPermukaanModule />}
+        {activeTab === 'volume' && <VolumeModule />}
+        {activeTab === 'game' && <MapGameModule speakText={speakText} />}
+      </main>
+
+      {/* Floating AI Chat Window */}
+      {showAiChat && (
+        <div className="fixed bottom-4 right-4 w-96 max-w-[92vw] h-[520px] bg-slate-800/95 border-2 border-emerald-400 rounded-3xl shadow-2xl z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5">
+          <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-3 flex items-center justify-between text-slate-950 border-b border-emerald-300">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-full bg-slate-900 border border-emerald-200 flex items-center justify-center font-bold text-emerald-400 text-base">
+                👩🏻‍🏫
+              </div>
+              <div>
+                <h3 className="font-black text-sm text-slate-950">Ibu Guru SEPHIA AI</h3>
+                <p className="text-[10px] font-bold text-slate-900">Guru Matematika SD Favorit</p>
+              </div>
+            </div>
+            <button onClick={() => setShowAiChat(false)} className="text-slate-900 hover:text-white">
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="flex-1 p-3.5 overflow-y-auto space-y-3 bg-slate-900/80 text-xs">
+            {aiMessages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl leading-relaxed ${
+                  msg.role === 'user' 
+                    ? 'bg-blue-600 text-white rounded-br-none font-medium' 
+                    : 'bg-slate-800 text-slate-100 border border-slate-700 rounded-bl-none shadow'
+                }`}>
+                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                </div>
+              </div>
+            ))}
+            {isAiThinking && (
+              <div className="flex justify-start">
+                <div className="bg-slate-800 text-slate-300 px-3.5 py-2 rounded-2xl rounded-bl-none border border-slate-700 flex items-center gap-2">
+                  <Sparkles size={14} className="animate-spin text-emerald-400" />
+                  <span>Ibu Guru sedang menyiapkan jawaban ramah...</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="p-3 bg-slate-800 border-t border-slate-700 flex gap-2">
+            <input 
+              type="text"
+              value={userQuery}
+              onChange={(e) => setUserQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSendAiMessage()}
+              placeholder="Tanyakan sesuatu pada Ibu Guru..."
+              className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-400"
+            />
+            <button 
+              onClick={handleSendAiMessage}
+              disabled={isAiThinking}
+              className="bg-emerald-400 hover:bg-emerald-300 text-slate-950 p-2.5 rounded-xl transition font-black disabled:opacity-50"
+            >
+              <Send size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Developer Feedback Modal */}
+      {showFeedback && <DeveloperFeedbackModal onClose={() => setShowFeedback(false)} speakText={speakText} />}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 border border-cyan-500/40 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative">
+            <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+              <X size={20} />
+            </button>
+            <h2 className="text-xl font-black text-cyan-300 mb-4 flex items-center gap-2">
+              <Settings size={22} /> Pengaturan Suara & Suasana Belajar
+            </h2>
+
+            <div className="space-y-4 text-sm text-slate-300">
+              <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-700 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-white">Voice AI Ibu Guru SD (Suara Perempuan)</h4>
+                  <button 
+                    onClick={() => setVoiceEnabled(!voiceEnabled)}
+                    className={`px-4 py-1.5 rounded-xl font-bold text-xs transition ${voiceEnabled ? 'bg-emerald-400 text-slate-950' : 'bg-slate-700 text-slate-400'}`}
+                  >
+                    {voiceEnabled ? 'AKTIF' : 'NONAKTIF'}
+                  </button>
+                </div>
+
+                {voicesList.length > 0 && (
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">Pilih Suara Sintesis Perempuan:</label>
+                    <select 
+                      value={selectedVoiceIndex} 
+                      onChange={(e) => setSelectedVoiceIndex(Number(e.target.value))}
+                      className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2 text-xs text-cyan-300 focus:outline-none"
+                    >
+                      {voicesList.map((v, idx) => (
+                        <option key={idx} value={idx}>
+                          {v.name} ({v.lang})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block font-bold">Kecepatan Bicara Guru (Rate):</label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="range" 
+                      min="0.75" 
+                      max="1.1" 
+                      step="0.05"
+                      value={speechRate}
+                      onChange={(e) => setSpeechRate(parseFloat(e.target.value))}
+                      className="flex-1 accent-cyan-400 cursor-pointer"
+                    />
+                    <span className="text-xs font-mono text-cyan-300 font-bold">{speechRate}x</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+                <h4 className="font-bold text-white text-sm">Petunjuk Penggunaan Layar Sentuh / IFP</h4>
+                <ul className="list-disc list-inside text-slate-300 space-y-1">
+                  <li><strong>Rotasi 3D:</strong> Geser layar 3D menggunakan 1 jari atau mouse.</li>
+                  <li><strong>Jaring-Jaring Engsel:</strong> Sisi Tutup (Merah) menempel rapat dan terikat engsel pada Sisi Belakang (Kuning).</li>
+                  <li><strong>Unlocking Level Game:</strong> Lulus dengan skor minimal 70% di tiap level untuk membuka gembok level berikutnya.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* About Developer Modal */}
+      {showAbout && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 border border-cyan-500/40 rounded-3xl max-w-md w-full p-6 shadow-2xl relative text-center">
+            <button onClick={() => setShowAbout(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+              <X size={20} />
+            </button>
+
+            <div className="w-16 h-16 bg-gradient-to-tr from-cyan-400 to-blue-600 rounded-2xl mx-auto flex items-center justify-center font-black text-3xl text-white shadow-lg mb-3 border border-cyan-200">
+              S
+            </div>
+            <h2 className="text-xl font-black text-white">SEPHIA</h2>
+            <p className="text-xs text-cyan-300 font-semibold mb-4">Spatial Exploration and Pedagogical Help through Interactive AI</p>
+
+            <div className="bg-slate-900/90 p-4 rounded-2xl border border-slate-700 text-xs text-left space-y-2 text-slate-300 mb-4">
+              <p><strong>Pengembang:</strong> Dewi Anggraini</p>
+              <p><strong>Institusi:</strong> Universitas Muhammadiyah Malang</p>
+              <p><strong>Program Studi:</strong> S2 Pedagogi</p>
+              <p><strong>Mata Pelajaran:</strong> Matematika Kelas VI Sekolah Dasar</p>
+              <p><strong>Materi Pokok:</strong> Bangun Ruang (Kubus & Balok)</p>
+            </div>
+
+            <p className="text-[11px] text-slate-400 italic">
+              "Dirancang khusus untuk mengoptimalkan pembelajaran matematika visual dan eksploratif berbasis Interactive Flat Panel (IFP)."
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 1. SPLASH SCREEN COMPONENT
+// ==========================================
+function SplashScreen({ onStart }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-4xl mx-auto my-auto animate-in fade-in duration-500">
+      <div className="relative mb-6">
+        <div className="w-28 h-28 md:w-36 md:h-36 rounded-3xl bg-gradient-to-tr from-cyan-400 via-blue-600 to-emerald-400 flex items-center justify-center font-black text-5xl md:text-7xl text-white shadow-2xl border-2 border-cyan-200 animate-pulse">
+          S
+        </div>
+        <div className="absolute -top-2 -right-2 bg-emerald-400 text-slate-950 font-black text-[10px] md:text-xs px-3 py-1 rounded-full shadow border border-white">
+          Interactive AI 3D
+        </div>
+      </div>
+
+      <h1 className="text-3xl md:text-5xl font-black tracking-tight mb-2 bg-gradient-to-r from-cyan-300 via-white to-emerald-300 bg-clip-text text-transparent">
+        SEPHIA
+      </h1>
+      <p className="text-sm md:text-lg text-cyan-300 font-bold max-w-2xl mb-2">
+        Spatial Exploration and Pedagogical Help through Interactive AI
+      </p>
+      <p className="text-xs md:text-sm text-slate-400 max-w-xl mb-8 leading-relaxed">
+        Multimedia Pembelajaran Interaktif Bangun Ruang Kubus dan Balok berbasis Interactive Flat Panel (IFP) untuk Siswa Sekolah Dasar.
+      </p>
+
+      <button
+        onClick={() => { playSound('click'); onStart(); }}
+        className="px-8 py-4 rounded-2xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black text-base md:text-lg shadow-xl shadow-cyan-500/20 transform hover:scale-105 transition duration-200 flex items-center gap-3"
+      >
+        <Play size={22} className="fill-current" /> Mulai Petualangan Belajar!
+      </button>
+
+      <div className="mt-12 pt-6 border-t border-slate-800 text-slate-400 text-xs space-y-1">
+        <p><strong>Pengembang:</strong> Dewi Anggraini | Universitas Muhammadiyah Malang</p>
+        <p>Program Studi S2 Pedagogi • Mata Pelajaran Matematika Kelas VI SD</p>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 2. MAIN MENU COMPONENT
+// ==========================================
+function MainMenu({ onSelectModule, onOpenFeedback }) {
+  const modules = [
+    { id: 'kenali', title: '1. Kenali Bangun Ruang', desc: 'Pengertian & contoh benda dalam kehidupan sehari-hari', icon: Eye, color: 'from-blue-500 to-cyan-500' },
+    { id: 'eksplorasi3d', title: '2. Eksplorasi 3D & Jaring-Jaring', desc: 'Laboratorium 3D interaktif & lipatan engsel presisi', icon: Layers, color: 'from-cyan-400 to-emerald-500' },
+    { id: 'unsur', title: '3. Unsur Bangun Ruang', desc: 'Sisi, rusuk, titik sudut & diagonal 3D', icon: Grid, color: 'from-emerald-400 to-teal-500' },
+    { id: 'sifat', title: '4. Sifat Kubus & Balok', desc: 'Tabel perbandingan & kuis karakteristik', icon: CheckCircle2, color: 'from-amber-400 to-orange-500' },
+    { id: 'luas', title: '5. Luas Permukaan', desc: 'Kalkulator manual desimal & langkah perhitungan', icon: Calculator, color: 'from-purple-500 to-indigo-500' },
+    { id: 'volume', title: '6. Volume Bangun Ruang', desc: 'Simulasi kubus satuan & input desimal', icon: Box, color: 'from-rose-400 to-pink-500' },
+    { id: 'game', title: '7. Game Peta Petualangan (5 Level)', desc: 'Petualangan map 5 level bertingkat dengan kunci unlock', icon: Award, color: 'from-yellow-400 to-amber-500' },
+  ];
+
+  return (
+    <div className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full flex flex-col justify-center">
+      <div className="text-center mb-6">
+        <h2 className="text-2xl md:text-3xl font-black text-white">MENU UTAMA PEMBELAJARAN</h2>
+        <p className="text-xs md:text-sm text-cyan-300">Pilih modul interaktif untuk memulai eksplorasi matematika bersama Kak SEPHIA!</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 mb-6">
+        {modules.map((m) => {
+          const IconComponent = m.icon;
+          return (
+            <div 
+              key={m.id}
+              onClick={() => { playSound('click'); onSelectModule(m.id); }}
+              className="group bg-slate-800/90 hover:bg-slate-800 border border-slate-700 hover:border-cyan-400 rounded-3xl p-5 shadow-lg cursor-pointer transform hover:-translate-y-1.5 transition duration-200 flex flex-col justify-between"
+            >
+              <div className="flex items-start gap-4">
+                <div className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${m.color} flex items-center justify-center text-slate-950 shadow-md flex-shrink-0 group-hover:scale-110 transition duration-300`}>
+                  <IconComponent size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-white text-base group-hover:text-cyan-300 transition">{m.title}</h3>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">{m.desc}</p>
+                </div>
+              </div>
+              <div className="mt-4 flex items-center justify-end text-xs font-bold text-cyan-400 group-hover:text-cyan-300">
+                Eksplorasi <ChevronRight size={14} className="ml-1 group-hover:translate-x-1 transition" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Menu Ke-8: Umpan Balik Pengembang Banner */}
+      <div 
+        onClick={() => { playSound('click'); onOpenFeedback(); }}
+        className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 border-2 border-amber-400/50 hover:border-amber-300 rounded-3xl p-4 shadow-xl cursor-pointer flex items-center justify-between transition group"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-bold">
+            <MessageSquare size={20} />
+          </div>
+          <div>
+            <h4 className="font-black text-white text-sm group-hover:text-amber-300 transition">8. Umpan Balik Pengembang</h4>
+            <p className="text-xs text-amber-200/90">Bantu Mbak Dewi Anggraini meningkatkan kualitas multimedia SEPHIA</p>
+          </div>
+        </div>
+        <div className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow">
+          Isi Umpan Balik
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 3. KENALI BANGUN RUANG MODULE
+// ==========================================
+function KenaliModule() {
+  const [activeShape, setActiveShape] = useState('kubus');
+
+  return (
+    <div className="flex-1 p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl md:text-2xl font-black text-white">Kenali Bangun Ruang Kubus & Balok</h2>
+          <p className="text-xs text-cyan-300">Pengertian dasar dan contoh benda konkret di sekitar kita</p>
+        </div>
+
+        <div className="flex gap-2 bg-slate-800 p-1.5 rounded-2xl border border-slate-700">
+          <button 
+            onClick={() => setActiveShape('kubus')}
+            className={`px-4 py-2 rounded-xl font-bold text-xs md:text-sm transition ${activeShape === 'kubus' ? 'bg-cyan-400 text-slate-950 shadow' : 'text-slate-300'}`}
+          >
+            Kubus
+          </button>
+          <button 
+            onClick={() => setActiveShape('balok')}
+            className={`px-4 py-2 rounded-xl font-bold text-xs md:text-sm transition ${activeShape === 'balok' ? 'bg-emerald-400 text-slate-950 shadow' : 'text-slate-300'}`}
+          >
+            Balok
+          </button>
+        </div>
+      </div>
+
+      {activeShape === 'kubus' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-4">
+            <h3 className="font-bold text-cyan-300 text-lg">Apa itu Kubus?</h3>
+            <p className="text-slate-300 text-xs md:text-sm leading-relaxed">
+              <strong>Kubus</strong> adalah bangun ruang tiga dimensi yang dibatasi oleh <strong>6 bidang sisi yang berbentuk persegi identik</strong> (sama besar dan sama luas).
+            </p>
+
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+              <h4 className="font-bold text-white">Contoh Benda berbentuk Kubus:</h4>
+              <ul className="list-disc list-inside text-slate-300 space-y-1">
+                <li>🎲 Dadu Permainan</li>
+                <li>🧩 Mainan Rubik</li>
+                <li>🎁 Kotak Hadiah / Kado Persegi</li>
+                <li>🧊 Es Batu Persegi</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl flex items-center justify-center text-center">
+            <div className="w-48 h-48 rounded-3xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-black text-6xl text-white shadow-2xl border-4 border-cyan-300">
+              🎲
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-4">
+            <h3 className="font-bold text-emerald-300 text-lg">Apa itu Balok?</h3>
+            <p className="text-slate-300 text-xs md:text-sm leading-relaxed">
+              <strong>Balok</strong> adalah bangun ruang tiga dimensi yang dibentuk oleh <strong>3 pasang persegi atau persegi panjang</strong> di mana sisi yang berhadapan berukuran sama.
+            </p>
+
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+              <h4 className="font-bold text-white">Contoh Benda berbentuk Balok:</h4>
+              <ul className="list-disc list-inside text-slate-300 space-y-1">
+                <li>📦 Kotak Sepatu</li>
+                <li>📚 Buku Pelajaran</li>
+                <li>🚪 Lemari Pakaian</li>
+                <li>🧱 Batu Bata</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl flex items-center justify-center text-center">
+            <div className="w-60 h-36 rounded-3xl bg-gradient-to-tr from-emerald-500 to-teal-600 flex items-center justify-center font-black text-6xl text-white shadow-2xl border-4 border-emerald-300">
+              📦
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 4. UNSUR BANGUN RUANG MODULE
+// ==========================================
+function UnsurModule() {
+  const [selectedUnsur, setSelectedUnsur] = useState('sisi');
+
+  const unsurData = {
+    sisi: {
+      title: '1. Sisi (Bidang)',
+      desc: 'Bidang datar yang membatasi bagian dalam dan bagian luar bangun ruang.',
+      kubus: '6 Sisi berbentuk persegi yang kongruen.',
+      balok: '6 Sisi berbentuk persegi panjang, sisi berhadapan sama luas.'
+    },
+    rusuk: {
+      title: '2. Rusuk',
+      desc: 'Garis potong pertemuan antara dua bidang sisi bangun ruang.',
+      kubus: '12 Rusuk yang semuanya sama panjang.',
+      balok: '12 Rusuk yang terbagi dalam 3 kelompok panjang, lebar, dan tinggi.'
+    },
+    sudut: {
+      title: '3. Titik Sudut',
+      desc: 'Titik perpotongan antara tiga rusuk atau lebih.',
+      kubus: '8 Titik Sudut.',
+      balok: '8 Titik Sudut.'
+    },
+    diagonal: {
+      title: '4. Diagonal Bidang & Ruang',
+      desc: 'Garis lurus yang menghubungkan dua titik sudut yang berseberangan.',
+      kubus: '12 Diagonal Bidang & 4 Diagonal Ruang.',
+      balok: '12 Diagonal Bidang & 4 Diagonal Ruang.'
+    }
+  };
+
+  const curr = unsurData[selectedUnsur];
+
+  return (
+    <div className="flex-1 p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col">
+      <h2 className="text-xl md:text-2xl font-black text-white mb-2">Unsur-Unsur Bangun Ruang</h2>
+      <p className="text-xs text-cyan-300 mb-6">Pilih salah satu unsur untuk mempelajari penjelasannya</p>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {Object.keys(unsurData).map((key) => (
+          <button
+            key={key}
+            onClick={() => { playSound('click'); setSelectedUnsur(key); }}
+            className={`p-3 rounded-2xl border font-bold text-xs transition ${
+              selectedUnsur === key ? 'bg-cyan-400 text-slate-950 border-cyan-300 shadow-lg' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750'
+            }`}
+          >
+            {unsurData[key].title}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-4">
+        <h3 className="font-black text-lg text-white">{curr.title}</h3>
+        <p className="text-xs md:text-sm text-slate-300 leading-relaxed bg-slate-900 p-4 rounded-2xl border border-slate-700">
+          {curr.desc}
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div className="bg-cyan-950/40 border border-cyan-500/30 p-4 rounded-2xl">
+            <h4 className="font-bold text-cyan-300 mb-1">Pada Kubus:</h4>
+            <p className="text-slate-300">{curr.kubus}</p>
+          </div>
+
+          <div className="bg-emerald-950/40 border border-emerald-500/30 p-4 rounded-2xl">
+            <h4 className="font-bold text-emerald-300 mb-1">Pada Balok:</h4>
+            <p className="text-slate-300">{curr.balok}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 5. 3D EXPLORATION & HINGED NET TRANSFORMATION MODULE
+// ==========================================
+function Eksplorasi3DModule() {
+  const mountRef = useRef(null);
+  const [shape, setShape] = useState('kubus');
+  const [isUnfolded, setIsUnfolded] = useState(false);
+  const [unfoldProgress, setUnfoldProgress] = useState(0);
+
+  const unfoldProgressRef = useRef(0);
+  const targetProgressRef = useRef(0);
+  const animFrameIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!mountRef.current) return;
+
+    const width = mountRef.current.clientWidth || 600;
+    const height = mountRef.current.clientHeight || 400;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f172a);
+
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    camera.position.set(5, 5, 8);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    mountRef.current.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+
+    // Lighting setup
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight1.position.set(10, 15, 10);
+    scene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.5);
+    dirLight2.position.set(-10, -10, -10);
+    scene.add(dirLight2);
+
+    // Root Group
+    const rootGroup = new THREE.Group();
+    scene.add(rootGroup);
+
+    // Shape dimensions
+    const isCube = shape === 'kubus';
+    const W = isCube ? 2 : 3;
+    const H = isCube ? 2 : 2;
+    const D = isCube ? 2 : 1.5;
+
+    const faceColors = {
+      bottom: 0x3b82f6,
+      front: 0x10b981,
+      back: 0xeab308,
+      left: 0xa855f7,
+      right: 0xf97316,
+      top: 0xef4444
+    };
+
+    // 1. BOTTOM FACE (Anchor)
+    const bottomGeo = new THREE.PlaneGeometry(W, D);
+    const bottomMat = new THREE.MeshStandardMaterial({ color: faceColors.bottom, side: THREE.DoubleSide, roughness: 0.3 });
+    const bottomMesh = new THREE.Mesh(bottomGeo, bottomMat);
+    bottomMesh.rotation.x = Math.PI / 2;
+    bottomMesh.position.set(0, -H / 2, 0);
+    rootGroup.add(bottomMesh);
+
+    // 2. FRONT HINGE & FACE
+    const frontPivot = new THREE.Group();
+    frontPivot.position.set(0, -H / 2, D / 2);
+    rootGroup.add(frontPivot);
+
+    const frontGeo = new THREE.PlaneGeometry(W, H);
+    const frontMat = new THREE.MeshStandardMaterial({ color: faceColors.front, side: THREE.DoubleSide, roughness: 0.3 });
+    const frontMesh = new THREE.Mesh(frontGeo, frontMat);
+    frontMesh.position.set(0, H / 2, 0);
+    frontPivot.add(frontMesh);
+
+    // 3. BACK HINGE & FACE
+    const backPivot = new THREE.Group();
+    backPivot.position.set(0, -H / 2, -D / 2);
+    rootGroup.add(backPivot);
+
+    const backGeo = new THREE.PlaneGeometry(W, H);
+    const backMat = new THREE.MeshStandardMaterial({ color: faceColors.back, side: THREE.DoubleSide, roughness: 0.3 });
+    const backMesh = new THREE.Mesh(backGeo, backMat);
+    backMesh.rotation.y = Math.PI;
+    backMesh.position.set(0, H / 2, 0);
+    backPivot.add(backMesh);
+
+    // 4. LEFT HINGE & FACE
+    const leftPivot = new THREE.Group();
+    leftPivot.position.set(-W / 2, -H / 2, 0);
+    rootGroup.add(leftPivot);
+
+    const leftGeo = new THREE.PlaneGeometry(D, H);
+    const leftMat = new THREE.MeshStandardMaterial({ color: faceColors.left, side: THREE.DoubleSide, roughness: 0.3 });
+    const leftMesh = new THREE.Mesh(leftGeo, leftMat);
+    leftMesh.rotation.y = -Math.PI / 2;
+    leftMesh.position.set(0, H / 2, 0);
+    leftPivot.add(leftMesh);
+
+    // 5. RIGHT HINGE & FACE
+    const rightPivot = new THREE.Group();
+    rightPivot.position.set(W / 2, -H / 2, 0);
+    rootGroup.add(rightPivot);
+
+    const rightGeo = new THREE.PlaneGeometry(D, H);
+    const rightMat = new THREE.MeshStandardMaterial({ color: faceColors.right, side: THREE.DoubleSide, roughness: 0.3 });
+    const rightMesh = new THREE.Mesh(rightGeo, rightMat);
+    rightMesh.rotation.y = Math.PI / 2;
+    rightMesh.position.set(0, H / 2, 0);
+    rightPivot.add(rightMesh);
+
+    // 6. TOP HINGE (ANCHORED STRICTLY TO BACK FACE EDGE)
+    const topPivot = new THREE.Group();
+    topPivot.position.set(0, H, 0);
+    backMesh.add(topPivot);
+
+    const topGeo = new THREE.PlaneGeometry(W, D);
+    const topMat = new THREE.MeshStandardMaterial({ color: faceColors.top, side: THREE.DoubleSide, roughness: 0.3 });
+    const topMesh = new THREE.Mesh(topGeo, topMat);
+    topMesh.rotation.x = -Math.PI / 2;
+    topMesh.position.set(0, 0, -D / 2);
+    topPivot.add(topMesh);
+
+    // Edge Outlines Helper
+    const edgesGeo = new THREE.BoxGeometry(W, H, D);
+    const edgesMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+    const boxEdges = new THREE.LineSegments(new THREE.EdgesGeometry(edgesGeo), edgesMat);
+    rootGroup.add(boxEdges);
+
+    const animateLoop = () => {
+      animFrameIdRef.current = requestAnimationFrame(animateLoop);
+
+      // Smooth Lerp Transition
+      unfoldProgressRef.current += (targetProgressRef.current - unfoldProgressRef.current) * 0.08;
+      const t = unfoldProgressRef.current;
+
+      // Hinge Rotations (in Radians)
+      frontPivot.rotation.x = t * (Math.PI / 2);
+      backPivot.rotation.x = -t * (Math.PI / 2);
+      leftPivot.rotation.z = t * (Math.PI / 2);
+      rightPivot.rotation.z = -t * (Math.PI / 2);
+      topPivot.rotation.x = -t * (Math.PI / 2);
+
+      boxEdges.visible = t < 0.1;
+
+      controls.update();
+      renderer.render(scene, camera);
+    };
+
+    animateLoop();
+
+    const handleResize = () => {
+      if (!mountRef.current) return;
+      const w = mountRef.current.clientWidth;
+      const h = mountRef.current.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+      if (mountRef.current && renderer.domElement) {
+        mountRef.current.removeChild(renderer.domElement);
+      }
+      renderer.dispose();
+    };
+  }, [shape]);
+
+  const toggleUnfold = () => {
+    playSound('click');
+    const nextState = !isUnfolded;
+    setIsUnfolded(nextState);
+    targetProgressRef.current = nextState ? 1 : 0;
+  };
+
+  return (
+    <div className="flex-1 p-4 md:p-6 max-w-6xl mx-auto w-full flex flex-col">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-xl md:text-2xl font-black text-white">Laboratorium Eksplorasi 3D & Jaring-Jaring</h2>
+          <p className="text-xs text-cyan-300">Transformasi 3D ke Jaring-jaring 2D terikat engsel tanpa melayang</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => { playSound('click'); setShape('kubus'); setIsUnfolded(false); targetProgressRef.current = 0; }}
+            className={`px-4 py-2 rounded-xl font-bold text-xs md:text-sm transition ${shape === 'kubus' ? 'bg-cyan-400 text-slate-950 shadow' : 'bg-slate-800 text-slate-300'}`}
+          >
+            Model Kubus
+          </button>
+          <button 
+            onClick={() => { playSound('click'); setShape('balok'); setIsUnfolded(false); targetProgressRef.current = 0; }}
+            className={`px-4 py-2 rounded-xl font-bold text-xs md:text-sm transition ${shape === 'balok' ? 'bg-emerald-400 text-slate-950 shadow' : 'bg-slate-800 text-slate-300'}`}
+          >
+            Model Balok
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
+        {/* 3D Viewport Canvas */}
+        <div className="lg:col-span-2 bg-slate-950 border-2 border-slate-700 rounded-3xl overflow-hidden shadow-2xl relative min-h-[380px] flex flex-col">
+          <div ref={mountRef} className="w-full flex-1 cursor-grab active:cursor-grabbing" />
+
+          {/* Unfold Action Bar */}
+          <div className="absolute bottom-4 left-4 right-4 bg-slate-900/90 backdrop-blur-md p-3 rounded-2xl border border-slate-700 flex items-center justify-between">
+            <span className="text-xs text-slate-300 font-bold hidden sm:inline">
+              Mode: {isUnfolded ? 'Jaring-jaring Terbentang' : 'Bangun Ruang 3D Utuh'}
+            </span>
+            <button
+              onClick={toggleUnfold}
+              className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-black text-xs md:text-sm transition shadow flex items-center justify-center gap-2 ${
+                isUnfolded ? 'bg-amber-400 text-slate-950 hover:bg-amber-300' : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
+              }`}
+            >
+              <RefreshCw size={16} className={isUnfolded ? 'rotate-180 transition duration-500' : ''} />
+              {isUnfolded ? 'Lipat Kembali Bangun Ruang' : 'Buka Jaring-Jaring Engsel'}
+            </button>
+          </div>
+        </div>
+
+        {/* Legend & Face Controls */}
+        <div className="bg-slate-800 border border-slate-700 rounded-3xl p-5 shadow-xl space-y-4 flex flex-col justify-between">
+          <div>
+            <h3 className="font-bold text-white text-base mb-3">Warna & Keterangan Sisi:</h3>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="p-2.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-red-500"></span> Sisi Tutup (Atas)
+              </div>
+              <div className="p-2.5 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-300 font-bold flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-blue-500"></span> Sisi Alas (Bawah)
+              </div>
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-emerald-500"></span> Sisi Depan
+              </div>
+              <div className="p-2.5 rounded-xl bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 font-bold flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-yellow-500"></span> Sisi Belakang
+              </div>
+              <div className="p-2.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-300 font-bold flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-purple-500"></span> Sisi Kiri
+              </div>
+              <div className="p-2.5 rounded-xl bg-orange-500/20 border border-orange-500/40 text-orange-300 font-bold flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-orange-500"></span> Sisi Kanan
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700 text-xs text-slate-300 space-y-2">
+            <h4 className="font-bold text-cyan-300">Catatan Engsel Presisi:</h4>
+            <p>
+              Saat tombol <strong>Buka Jaring-jaring</strong> ditekan, Sisi Tutup (Merah) akan terhubung secara tetap pada engsel Sisi Belakang (Kuning) tanpa melayang di udara.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 6. SIFAT-SIFAT KUBUS DAN BALOK MODULE
+// ==========================================
+function SifatModule() {
+  return (
+    <div className="flex-1 p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col">
+      <h2 className="text-xl md:text-2xl font-black text-white mb-2">Sifat-Sifat Kubus & Balok</h2>
+      <p className="text-xs text-cyan-300 mb-6">Perbandingan karakteristik geometri secara mendalam</p>
+
+      <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-6">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs md:text-sm text-slate-300 border-collapse">
+            <thead>
+              <tr className="border-b border-slate-700 text-white font-bold bg-slate-900/60">
+                <th className="p-3">Karakteristik Geometri</th>
+                <th className="p-3 text-cyan-400">Kubus</th>
+                <th className="p-3 text-emerald-400">Balok</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700/50">
+              <tr>
+                <td className="p-3 font-semibold text-white">Bentuk Sisi</td>
+                <td className="p-3">6 Persegi sama besar (kongruen)</td>
+                <td className="p-3">6 Persegi Panjang (3 pasang sejajar)</td>
+              </tr>
+              <tr>
+                <td className="p-3 font-semibold text-white">Ukuran Rusuk</td>
+                <td className="p-3">12 Rusuk sama panjang</td>
+                <td className="p-3">12 Rusuk (3 kelompok sama panjang: p, l, t)</td>
+              </tr>
+              <tr>
+                <td className="p-3 font-semibold text-white">Jumlah Titik Sudut</td>
+                <td className="p-3">8 Titik Sudut (Siku-siku 90°)</td>
+                <td className="p-3">8 Titik Sudut (Siku-siku 90°)</td>
+              </tr>
+              <tr>
+                <td className="p-3 font-semibold text-white">Diagonal Bidang</td>
+                <td className="p-3">12 Diagonal sama panjang</td>
+                <td className="p-3">12 Diagonal (berpasangan sama panjang)</td>
+              </tr>
+              <tr>
+                <td className="p-3 font-semibold text-white">Diagonal Ruang</td>
+                <td className="p-3">4 Diagonal Ruang sama panjang</td>
+                <td className="p-3">4 Diagonal Ruang sama panjang</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 7. LUAS PERMUKAAN SIMULATION MODULE
+// ==========================================
+function LuasPermukaanModule() {
+  const [shapeType, setShapeType] = useState('kubus');
+  
+  // Decimal Manual Inputs
+  const [sisi, setSisi] = useState('4.5');
+  const [panjang, setPanjang] = useState('6.5');
+  const [lebar, setLebar] = useState('4');
+  const [tinggi, setTinggi] = useState('3.5');
+
+  // Compute values dynamically
+  const parseVal = (val) => parseFloat(String(val).replace(',', '.')) || 0;
+
+  const sVal = parseVal(sisi);
+  const pVal = parseVal(panjang);
+  const lVal = parseVal(lebar);
+  const tVal = parseVal(tinggi);
+
+  const lpKubus = (6 * sVal * sVal).toFixed(2);
+  const lpBalok = (2 * (pVal * lVal + pVal * tVal + lVal * tVal)).toFixed(2);
+
+  return (
+    <div className="flex-1 p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl md:text-2xl font-black text-white">Kalkulator Luas Permukaan Interaktif</h2>
+          <p className="text-xs text-cyan-300">Dapat menerima input angka desimal manual</p>
+        </div>
+
+        <div className="flex gap-2 bg-slate-800 p-1 rounded-2xl border border-slate-700">
+          <button 
+            onClick={() => { playSound('click'); setShapeType('kubus'); }}
+            className={`px-4 py-2 rounded-xl font-bold text-xs transition ${shapeType === 'kubus' ? 'bg-cyan-400 text-slate-950 shadow' : 'text-slate-300'}`}
+          >
+            Luas Kubus
+          </button>
+          <button 
+            onClick={() => { playSound('click'); setShapeType('balok'); }}
+            className={`px-4 py-2 rounded-xl font-bold text-xs transition ${shapeType === 'balok' ? 'bg-emerald-400 text-slate-950 shadow' : 'text-slate-300'}`}
+          >
+            Luas Balok
+          </button>
+        </div>
+      </div>
+
+      {shapeType === 'kubus' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-4">
+            <h3 className="font-bold text-cyan-300 text-base">Rumus Luas Permukaan Kubus:</h3>
+            <div className="bg-slate-900 p-3 rounded-2xl border border-slate-700 text-center font-mono text-cyan-300 font-bold text-sm">
+              LP = 6 × s²
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs text-slate-300 font-bold block">Panjang Sisi (s) dalam cm [Desimal]:</label>
+              <input 
+                type="text" 
+                value={sisi}
+                onChange={(e) => setSisi(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-2xl px-4 py-3 text-cyan-300 font-mono text-sm focus:outline-none focus:border-cyan-400"
+              />
+            </div>
+
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+              <h4 className="font-bold text-white">Langkah Perhitungan:</h4>
+              <p className="text-slate-300 font-mono">LP = 6 × {sVal} × {sVal}</p>
+              <p className="text-slate-300 font-mono">LP = 6 × {(sVal * sVal).toFixed(2)}</p>
+              <p className="text-emerald-400 font-black text-sm font-mono mt-2">Hasil: {lpKubus} cm²</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl flex flex-col items-center justify-center text-center">
+            <div className="w-44 h-44 rounded-3xl bg-gradient-to-tr from-cyan-500 to-blue-600 border-4 border-cyan-300 flex items-center justify-center font-black text-white text-3xl shadow-2xl mb-4">
+              {sVal} cm
+            </div>
+            <p className="text-xs text-slate-400">Model Kubus 6 Sisi Identik ({sVal} × {sVal} cm² per sisi)</p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-4">
+            <h3 className="font-bold text-emerald-300 text-base">Rumus Luas Permukaan Balok:</h3>
+            <div className="bg-slate-900 p-3 rounded-2xl border border-slate-700 text-center font-mono text-emerald-300 font-bold text-xs md:text-sm">
+              LP = 2 × (p × l + p × t + l × t)
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-[10px] text-slate-300 font-bold block mb-1">Panjang (p):</label>
+                <input 
+                  type="text" 
+                  value={panjang}
+                  onChange={(e) => setPanjang(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl p-2 text-emerald-300 font-mono text-xs focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-300 font-bold block mb-1">Lebar (l):</label>
+                <input 
+                  type="text" 
+                  value={lebar}
+                  onChange={(e) => setLebar(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl p-2 text-emerald-300 font-mono text-xs focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-300 font-bold block mb-1">Tinggi (t):</label>
+                <input 
+                  type="text" 
+                  value={tinggi}
+                  onChange={(e) => setTinggi(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl p-2 text-emerald-300 font-mono text-xs focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+              <h4 className="font-bold text-white">Langkah Perhitungan:</h4>
+              <p className="text-slate-300 font-mono">LP = 2 × (({pVal} × {lVal}) + ({pVal} × {tVal}) + ({lVal} × {tVal}))</p>
+              <p className="text-slate-300 font-mono">LP = 2 × ({(pVal*lVal).toFixed(2)} + {(pVal*tVal).toFixed(2)} + {(lVal*tVal).toFixed(2)})</p>
+              <p className="text-emerald-400 font-black text-sm font-mono mt-2">Hasil: {lpBalok} cm²</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl flex flex-col items-center justify-center text-center">
+            <div className="w-56 h-32 rounded-3xl bg-gradient-to-tr from-emerald-500 to-teal-600 border-4 border-emerald-300 flex items-center justify-center font-black text-white text-2xl shadow-2xl mb-4">
+              {pVal} × {lVal} × {tVal}
+            </div>
+            <p className="text-xs text-slate-400">Visualisasi Bangun Balok Desimal</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 8. VOLUME SIMULATION MODULE
+// ==========================================
+function VolumeModule() {
+  const [shapeType, setShapeType] = useState('kubus');
+  
+  const [sisi, setSisi] = useState('5');
+  const [panjang, setPanjang] = useState('5.5');
+  const [lebar, setLebar] = useState('3');
+  const [tinggi, setTinggi] = useState('4');
+
+  const parseVal = (val) => parseFloat(String(val).replace(',', '.')) || 0;
+
+  const sVal = parseVal(sisi);
+  const pVal = parseVal(panjang);
+  const lVal = parseVal(lebar);
+  const tVal = parseVal(tinggi);
+
+  const volKubus = (sVal * sVal * sVal).toFixed(2);
+  const volBalok = (pVal * lVal * tVal).toFixed(2);
+
+  return (
+    <div className="flex-1 p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl md:text-2xl font-black text-white">Simulasi Volume Bangun Ruang</h2>
+          <p className="text-xs text-cyan-300">Menghitung volume kapasitas ruang dengan desimal</p>
+        </div>
+
+        <div className="flex gap-2 bg-slate-800 p-1 rounded-2xl border border-slate-700">
+          <button 
+            onClick={() => { playSound('click'); setShapeType('kubus'); }}
+            className={`px-4 py-2 rounded-xl font-bold text-xs transition ${shapeType === 'kubus' ? 'bg-cyan-400 text-slate-950 shadow' : 'text-slate-300'}`}
+          >
+            Volume Kubus
+          </button>
+          <button 
+            onClick={() => { playSound('click'); setShapeType('balok'); }}
+            className={`px-4 py-2 rounded-xl font-bold text-xs transition ${shapeType === 'balok' ? 'bg-emerald-400 text-slate-950 shadow' : 'text-slate-300'}`}
+          >
+            Volume Balok
+          </button>
+        </div>
+      </div>
+
+      {shapeType === 'kubus' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-4">
+            <h3 className="font-bold text-cyan-300 text-base">Rumus Volume Kubus:</h3>
+            <div className="bg-slate-900 p-3 rounded-2xl border border-slate-700 text-center font-mono text-cyan-300 font-bold text-sm">
+              V = s³ = s × s × s
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs text-slate-300 font-bold block">Sisi (s) cm [Input Desimal]:</label>
+              <input 
+                type="text" 
+                value={sisi}
+                onChange={(e) => setSisi(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-2xl px-4 py-3 text-cyan-300 font-mono text-sm focus:outline-none"
+              />
+            </div>
+
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+              <h4 className="font-bold text-white">Perhitungan Volume:</h4>
+              <p className="text-slate-300 font-mono">V = {sVal} × {sVal} × {sVal}</p>
+              <p className="text-emerald-400 font-black text-sm font-mono mt-2">Volume = {volKubus} cm³</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl flex flex-col items-center justify-center text-center">
+            <div className="w-44 h-44 rounded-3xl bg-cyan-500/20 border-2 border-cyan-400 flex items-center justify-center font-black text-cyan-300 text-2xl shadow-xl">
+              V = {volKubus} cm³
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-4">
+            <h3 className="font-bold text-emerald-300 text-base">Rumus Volume Balok:</h3>
+            <div className="bg-slate-900 p-3 rounded-2xl border border-slate-700 text-center font-mono text-emerald-300 font-bold text-sm">
+              V = p × l × t
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-[10px] text-slate-300 font-bold block mb-1">Panjang (p):</label>
+                <input 
+                  type="text" 
+                  value={panjang}
+                  onChange={(e) => setPanjang(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl p-2 text-emerald-300 font-mono text-xs focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-300 font-bold block mb-1">Lebar (l):</label>
+                <input 
+                  type="text" 
+                  value={lebar}
+                  onChange={(e) => setLebar(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl p-2 text-emerald-300 font-mono text-xs focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-300 font-bold block mb-1">Tinggi (t):</label>
+                <input 
+                  type="text" 
+                  value={tinggi}
+                  onChange={(e) => setTinggi(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-xl p-2 text-emerald-300 font-mono text-xs focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+              <h4 className="font-bold text-white">Perhitungan Volume Balok:</h4>
+              <p className="text-slate-300 font-mono">V = {pVal} × {lVal} × {tVal}</p>
+              <p className="text-emerald-400 font-black text-sm font-mono mt-2">Volume = {volBalok} cm³</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl flex flex-col items-center justify-center text-center">
+            <div className="w-56 h-36 rounded-3xl bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center font-black text-emerald-300 text-2xl shadow-xl">
+              V = {volBalok} cm³
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 9. MAP-BASED GAME ADVENTURE MODULE (5 LEVELS WITH LOCK SYSTEM)
+// ==========================================
+function MapGameModule({ speakText }) {
+  const [activeLevel, setActiveLevel] = useState(1);
+  const [unlockedLevels, setUnlockedLevels] = useState([1]);
+  const [score, setScore] = useState(0);
+
+  // Question database for 5 Levels
+  const levelQuestions = {
+    1: {
+      title: 'Level 1: Mengenal Dunia Bangun Ruang',
+      q: 'Manakah benda di bawah ini yang berbentuk KUBUS sempurna?',
+      options: ['📦 Kotak Sepatu', '🎲 Dadu Permainan', '📚 Buku Tulis', '🧱 Batu Bata'],
+      correct: 1
+    },
+    2: {
+      title: 'Level 2: Unsur Sisi & Rusuk',
+      q: 'Berapakah total jumlah titik sudut pada sebuah Balok?',
+      options: ['6 Titik Sudut', '8 Titik Sudut', '12 Titik Sudut', '10 Titik Sudut'],
+      correct: 1
+    },
+    3: {
+      title: 'Level 3: Transformasi Jaring-Jaring',
+      q: 'Jika kubus dibuka, berapakah jumlah bidang persegi yang membentuk jaring-jaringnya?',
+      options: ['4 Bidang', '5 Bidang', '6 Bidang', '8 Bidang'],
+      correct: 2
+    },
+    4: {
+      title: 'Level 4: Tantangan Luas Permukaan',
+      q: 'Hitung Luas Permukaan kubus yang memiliki panjang sisi (s) = 5 cm!',
+      options: ['100 cm²', '125 cm²', '150 cm²', '175 cm²'],
+      correct: 2
+    },
+    5: {
+      title: 'Level 5: Master Misi Volume Kontekstual',
+      q: 'Sebuah wadah berbentuk balok memiliki p = 10 cm, l = 4 cm, t = 5 cm. Berapakah volumenya?',
+      options: ['180 cm³', '200 cm³', '220 cm³', '240 cm³'],
+      correct: 1
+    }
+  };
+
+  const currentQ = levelQuestions[activeLevel];
+
+  const handleAnswer = (optionIdx) => {
+    if (optionIdx === currentQ.correct) {
+      playSound('correct');
+      setScore(score + 20);
+      
+      if (activeLevel < 5 && !unlockedLevels.includes(activeLevel + 1)) {
+        setUnlockedLevels([...unlockedLevels, activeLevel + 1]);
+        playSound('unlock');
+        if (speakText) speakText(`Hore! Jawabanmu benar! Level ${activeLevel + 1} berhasil terbuka!`);
+      } else {
+        if (speakText) speakText("Jawabanmu tepat sekali! Kamu luar biasa!");
+      }
+    } else {
+      playSound('wrong');
+      if (speakText) speakText("Ups! Masih kurang tepat. Coba periksa kembali ya!");
+    }
+  };
+
+  return (
+    <div className="flex-1 p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl md:text-2xl font-black text-white">Peta Petualangan Game SEPHIA</h2>
+          <p className="text-xs text-cyan-300">Selesaikan level untuk membuka petualangan berikutnya!</p>
+        </div>
+
+        <div className="bg-slate-800 px-4 py-2 rounded-2xl border border-slate-700 flex items-center gap-2 text-amber-300 font-bold text-sm">
+          <Star className="fill-amber-400 text-amber-400" size={18} />
+          <span>Skor Total: {score}</span>
+        </div>
+      </div>
+
+      {/* Map Nodes Navigation */}
+      <div className="bg-slate-800 border border-slate-700 rounded-3xl p-4 mb-6 shadow-xl flex items-center justify-around gap-2 overflow-x-auto">
+        {[1, 2, 3, 4, 5].map((lvl) => {
+          const isUnlocked = unlockedLevels.includes(lvl);
+          const isActive = activeLevel === lvl;
+
+          return (
+            <button
+              key={lvl}
+              onClick={() => {
+                if (isUnlocked) {
+                  playSound('click');
+                  setActiveLevel(lvl);
+                } else {
+                  playSound('wrong');
+                  if (speakText) speakText(`Level ${lvl} masih terkunci. Selesaikan level sebelumnya dengan benar ya!`);
+                }
+              }}
+              className={`flex-1 min-w-[70px] py-3 rounded-2xl font-black text-xs transition flex flex-col items-center gap-1 border ${
+                isActive
+                  ? 'bg-gradient-to-tr from-cyan-400 to-emerald-400 text-slate-950 border-white shadow-lg scale-105'
+                  : isUnlocked
+                    ? 'bg-slate-700 text-cyan-300 border-slate-600 hover:bg-slate-600'
+                    : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed opacity-60'
+              }`}
+            >
+              {isUnlocked ? <Unlock size={16} /> : <Lock size={16} />}
+              <span>Lvl {lvl}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Level Challenge Box */}
+      <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-xl space-y-6">
+        <div className="flex items-center justify-between border-b border-slate-700 pb-3">
+          <h3 className="font-black text-cyan-300 text-base">{currentQ.title}</h3>
+          <span className="text-xs font-bold text-slate-400">Poin: +20</span>
+        </div>
+
+        <p className="text-white text-sm md:text-base font-bold leading-relaxed">{currentQ.q}</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {currentQ.options.map((opt, idx) => (
+            <button
+              key={idx}
+              onClick={() => handleAnswer(idx)}
+              className="p-4 rounded-2xl bg-slate-900 hover:bg-cyan-500/20 border border-slate-700 hover:border-cyan-400 text-left font-bold text-xs md:text-sm text-slate-200 transition"
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 10. DEVELOPER FEEDBACK MODAL COMPONENT
+// ==========================================
+function DeveloperFeedbackModal({ onClose, speakText }) {
+  const [rating, setRating] = useState(5);
+  const [emotion, setEmotion] = useState('smile');
+  const [feedbackText, setFeedbackText] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!feedbackText.trim()) return;
+
+    playSound('fanfare');
+    setSubmitted(true);
+    if (speakText) speakText("Terima kasih banyak atas umpan baliknya! Kakak Dewi Anggraini akan terus mengembangkan multimedia ini agar makin keren!");
+    
+    setTimeout(() => {
+      onClose();
+    }, 2500);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+      <div className="bg-slate-800 border-2 border-amber-400/60 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative text-slate-100">
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+          <X size={20} />
+        </button>
+
+        {!submitted ? (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-bold">
+                <MessageSquare size={24} />
+              </div>
+              <div>
+                <h3 className="font-black text-lg text-white">Umpan Balik untuk Pengembang</h3>
+                <p className="text-xs text-amber-300">Pengembang: Dewi Anggraini (S2 Pedagogi UMM)</p>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-300 mb-2 block font-bold">Bagaimana tingkat kepuasanmu menggunakan SEPHIA?</label>
+              <div className="flex justify-center gap-2">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    type="button"
+                    key={star}
+                    onClick={() => { playSound('click'); setRating(star); }}
+                    className="p-2 transition transform hover:scale-110"
+                  >
+                    <Star size={28} className={star <= rating ? 'fill-amber-400 text-amber-400' : 'text-slate-600'} />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-300 mb-2 block font-bold">Pilih Ekspresi Perasaanmu:</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'frown', label: 'Kurang', icon: Frown },
+                  { id: 'meh', label: 'Cukup', icon: Meh },
+                  { id: 'smile', label: 'Bagut', icon: Smile },
+                  { id: 'smilePlus', label: 'Sangat Suka', icon: SmilePlus }
+                ].map((emo) => {
+                  const Icon = emo.icon;
+                  return (
+                    <button
+                      type="button"
+                      key={emo.id}
+                      onClick={() => { playSound('click'); setEmotion(emo.id); }}
+                      className={`p-2.5 rounded-2xl border text-xs font-bold flex flex-col items-center gap-1 transition ${
+                        emotion === emo.id ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-slate-900 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      <Icon size={20} />
+                      <span>{emo.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-300 mb-1 block font-bold">Kritik & Saran Pembangun:</label>
+              <textarea
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                placeholder="Tuliskan masukan atau pengalaman belajarmu di sini..."
+                rows={3}
+                required
+                className="w-full bg-slate-900 border border-slate-600 rounded-2xl p-3 text-xs text-white focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 font-black text-sm shadow-lg flex items-center justify-center gap-2"
+            >
+              <Send size={16} /> Kirim Umpan Balik
+            </button>
+          </form>
+        ) : (
+          <div className="text-center py-8 space-y-3">
+            <div className="w-16 h-16 bg-emerald-400/20 text-emerald-400 border-2 border-emerald-400 rounded-full mx-auto flex items-center justify-center">
+              <CheckCircle2 size={36} />
+            </div>
+            <h3 className="font-black text-xl text-white">Umpan Balik Terkirim!</h3>
+            <p className="text-xs text-slate-300">
+              Terima kasih telah membantu menyempurnakan multimedia pembelajaran SEPHIA!
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
